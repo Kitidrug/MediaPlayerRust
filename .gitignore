@@ -1,0 +1,17 @@
+# Rust build artifacts
+/target/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary & debug files
+*.log
+*.pdb
