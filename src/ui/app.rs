@@ -12,6 +12,12 @@ use crate::player::PlayerController;
 use crate::ui::timeline::VideoTimeline;
 use crate::ui::url_dialog::UrlDialog;
 
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum AppTab {
+    Player,
+    Extractor,
+}
+
 #[derive(PartialEq, Eq)]
 enum SettingsSubmenu {
     Main,
@@ -24,6 +30,10 @@ pub struct MediaPlayerApp {
     player: PlayerController,
     video_texture: Option<egui::TextureHandle>,
     video_dimensions: [f32; 2],
+
+    // Navigation tab
+    active_tab: AppTab,
+    extractor_ui: crate::ui::extractor_tab::ExtractorTabUi,
 
     // UI state
     url_dialog: UrlDialog,
@@ -59,6 +69,8 @@ impl MediaPlayerApp {
             player,
             video_texture: None,
             video_dimensions: [0.0, 0.0],
+            active_tab: AppTab::Player,
+            extractor_ui: crate::ui::extractor_tab::ExtractorTabUi::default(),
             url_dialog: UrlDialog::default(),
             is_fullscreen: false,
             is_seeking: false,
@@ -597,9 +609,64 @@ impl eframe::App for MediaPlayerApp {
                         .inner_margin(Vec2::new(14.0, 10.0)),
                 )
                 .show(ctx, |ui| {
-                    // Row 1: Selectors (Озвучка AniDUB, Плеер / Папка)
+                    // Row 1: Tab switcher + Selectors (Озвучка AniDUB, Плеер / Папка)
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
+
+                        // --- TAB SWITCHER: [▶ Просмотр] | [📥 Экстрактор дорожек] ---
+                        let is_player_tab = self.active_tab == AppTab::Player;
+                        let is_extractor_tab = self.active_tab == AppTab::Extractor;
+
+                        let (player_bg, player_fg) = if is_player_tab {
+                            (Color32::from_rgb(124, 58, 237), Color32::WHITE) // Purple
+                        } else {
+                            (Color32::from_rgb(32, 35, 46), Color32::from_rgb(180, 185, 200))
+                        };
+
+                        let player_tab_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new("▶ Просмотр")
+                                    .font(FontId::proportional(12.5))
+                                    .color(player_fg)
+                                    .strong(),
+                            )
+                            .fill(player_bg)
+                            .min_size(Vec2::new(88.0, 28.0))
+                            .rounding(Rounding::same(5.0)),
+                        );
+                        if player_tab_btn.clicked() {
+                            self.active_tab = AppTab::Player;
+                        }
+
+                        let (ext_bg, ext_fg) = if is_extractor_tab {
+                            (Color32::from_rgb(124, 58, 237), Color32::WHITE) // Purple
+                        } else {
+                            (Color32::from_rgb(32, 35, 46), Color32::from_rgb(180, 185, 200))
+                        };
+
+                        let ext_tab_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new("📥 Экстрактор дорожек")
+                                    .font(FontId::proportional(12.5))
+                                    .color(ext_fg)
+                                    .strong(),
+                            )
+                            .fill(ext_bg)
+                            .min_size(Vec2::new(150.0, 28.0))
+                            .rounding(Rounding::same(5.0)),
+                        );
+                        if ext_tab_btn.clicked() {
+                            self.active_tab = AppTab::Extractor;
+                            if self.extractor_ui.current_file.is_none() {
+                                if let Some(ref pf) = self.player.current_file_path {
+                                    self.extractor_ui.load_file(pf.clone());
+                                }
+                            }
+                        }
+
+                        ui.add_space(2.0);
+                        ui.separator();
+                        ui.add_space(2.0);
 
                         // Audio track selector (Озвучка AniDUB (24 эп.))
                         let current_audio_id = self.player.current_audio;
@@ -689,61 +756,63 @@ impl eframe::App for MediaPlayerApp {
                         }
                     });
 
-                    ui.add_space(8.0);
+                    if self.active_tab == AppTab::Player {
+                        ui.add_space(8.0);
 
-                    // Row 2: EPISODE BUTTONS GRID (Screenshot 1: 1, 2, 3... 24)
-                    let total_episodes = if self.player.playlist.is_empty() {
-                        1
-                    } else {
-                        self.player.playlist.len()
-                    };
+                        // Row 2: EPISODE BUTTONS GRID (Screenshot 1: 1, 2, 3... 24)
+                        let total_episodes = if self.player.playlist.is_empty() {
+                            1
+                        } else {
+                            self.player.playlist.len()
+                        };
 
-                    let current_episode_idx = self.player.playlist.current_index.unwrap_or(0);
+                        let current_episode_idx = self.player.playlist.current_index.unwrap_or(0);
 
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = Vec2::new(5.0, 5.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::new(5.0, 5.0);
 
-                        for ep_idx in 0..total_episodes {
-                            let ep_num = ep_idx + 1;
-                            let is_active = ep_idx == current_episode_idx;
+                            for ep_idx in 0..total_episodes {
+                                let ep_num = ep_idx + 1;
+                                let is_active = ep_idx == current_episode_idx;
 
-                            // Active episode is vibrant emerald green #22c55e with black text (Screenshot 1: ep 24)
-                            let (bg_color, text_color) = if is_active {
-                                (Color32::from_rgb(34, 197, 94), Color32::from_rgb(10, 15, 10))
-                            } else {
-                                (Color32::from_rgb(45, 48, 58), Color32::from_rgb(220, 225, 235))
-                            };
+                                // Active episode is vibrant emerald green #22c55e with black text (Screenshot 1: ep 24)
+                                let (bg_color, text_color) = if is_active {
+                                    (Color32::from_rgb(34, 197, 94), Color32::from_rgb(10, 15, 10))
+                                } else {
+                                    (Color32::from_rgb(45, 48, 58), Color32::from_rgb(220, 225, 235))
+                                };
 
-                            let ep_btn = egui::Button::new(
-                                RichText::new(format!("{}", ep_num))
-                                    .font(FontId::proportional(13.0))
-                                    .color(text_color)
-                                    .strong(),
-                            )
-                            .fill(bg_color)
-                            .min_size(Vec2::new(34.0, 30.0))
-                            .rounding(Rounding::same(4.0_f32));
+                                let ep_btn = egui::Button::new(
+                                    RichText::new(format!("{}", ep_num))
+                                        .font(FontId::proportional(13.0))
+                                        .color(text_color)
+                                        .strong(),
+                                )
+                                .fill(bg_color)
+                                .min_size(Vec2::new(34.0, 30.0))
+                                .rounding(Rounding::same(4.0_f32));
 
-                            let response = ui.add(ep_btn);
+                                let response = ui.add(ep_btn);
 
-                            // Subtle purple top-edge highlight on inactive buttons (Screenshot 1)
-                            if !is_active {
-                                let top_rect = Rect::from_min_size(
-                                    response.rect.min,
-                                    Vec2::new(response.rect.width(), 2.5_f32),
-                                );
-                                ui.painter().rect_filled(
-                                    top_rect,
-                                    Rounding::same(1.0_f32),
-                                    Color32::from_rgb(124, 58, 237), // Purple tab
-                                );
+                                // Subtle purple top-edge highlight on inactive buttons (Screenshot 1)
+                                if !is_active {
+                                    let top_rect = Rect::from_min_size(
+                                        response.rect.min,
+                                        Vec2::new(response.rect.width(), 2.5_f32),
+                                    );
+                                    ui.painter().rect_filled(
+                                        top_rect,
+                                        Rounding::same(1.0_f32),
+                                        Color32::from_rgb(124, 58, 237), // Purple tab
+                                    );
+                                }
+
+                                if response.clicked() {
+                                    play_episode_idx = Some(ep_idx);
+                                }
                             }
-
-                            if response.clicked() {
-                                play_episode_idx = Some(ep_idx);
-                            }
-                        }
-                    });
+                        });
+                    }
                 });
 
             if let Some((id, name)) = switch_audio_id {
@@ -764,8 +833,8 @@ impl eframe::App for MediaPlayerApp {
         let mut toggle_play_pause = false;
         let mut gear_button_rect = None;
 
-        // In windowed mode: standard docked bottom panel
-        if !self.is_fullscreen {
+        // In windowed mode: standard docked bottom panel (only for player tab)
+        if !self.is_fullscreen && self.active_tab == AppTab::Player {
             egui::TopBottomPanel::bottom("bottom_kodik_bar")
                 .frame(
                     egui::Frame::none()
@@ -785,11 +854,16 @@ impl eframe::App for MediaPlayerApp {
         }
 
         // =========================================================================
-        // 3. CENTRAL VIDEO VIEWPORT & RESUME PROMPT (Letterboxed video / Kodik Card)
+        // 3. CENTRAL VIDEO VIEWPORT & RESUME PROMPT / EXTRACTOR TAB
         // =========================================================================
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(Color32::from_rgb(0, 0, 0)))
+            .frame(egui::Frame::none().fill(Color32::from_rgb(14, 16, 23)))
             .show(ctx, |ui| {
+                if self.active_tab == AppTab::Extractor {
+                    let player_file = self.player.current_file_path.as_deref();
+                    self.extractor_ui.show(ui, player_file);
+                    return;
+                }
                 let available_size = ui.available_size();
                 let mut toggle_fullscreen_click = false;
 
@@ -1258,11 +1332,13 @@ impl eframe::App for MediaPlayerApp {
             self.show_osd(label);
         }
 
-        // Repaint request for smooth 60fps playback, controls fade animation, or OSD animation
+        // Repaint request for smooth 60fps playback, controls fade animation, OSD, or extractor background tasks
         if self.player.state == PlaybackState::Playing
             || self.osd_expires_at.map(|e| Instant::now() < e).unwrap_or(false)
             || (self.controls_opacity > 0.0 && self.controls_opacity < 1.0)
             || self.is_seeking
+            || self.extractor_ui.is_inspecting
+            || self.extractor_ui.is_exporting
         {
             ctx.request_repaint();
         }
